@@ -1,0 +1,67 @@
+[tool.poetry]
+name = "campus-core"
+version = "0.1.0"
+description = "Campus storage + webauth + email services - PEP 420 namespace portion under campus/ ; DB drivers are extras, never installed downstream"
+authors = ["Ng Jun Siang <ngjunsiang@gmail.com>"]
+readme = "README.md"
+packages = [{include = "campus", from = "src"}]
+
+[tool.poetry.dependencies]
+python = ">=3.11.0,<3.15"
+# campus.common (env/schema/errors/utils) + campus.model (Model, InternalModel,
+# constraints, HttpHeader) ship in the campus-common / campus-model dists.
+# Direct-URL deps: the baked URL propagates into wheel metadata, so a bump
+# upstream requires a rebuild here.
+campus-common = {url = "https://github.com/nyjc-computing/campus-common/releases/download/v0.3.1/campus_common-0.3.1-py3-none-any.whl"}
+campus-model = {url = "https://github.com/nyjc-computing/campus-model/releases/download/v0.1.3/campus_model-0.1.3-py3-none-any.whl"}
+# webauth's OAuth2 flows speak HTTP directly (token endpoints).
+requests = "^2.32.4"
+# Database/object drivers are extras: storage backends import them lazily,
+# and downstream apps NEVER install this dist — only campus-suite does.
+psycopg2-binary = {version = "^2.9.0", optional = true}
+pymongo = {extras = ["srv"], version = "^4.13.2", optional = true}
+boto3 = {version = "^1.35.0", optional = true}
+
+[tool.poetry.extras]
+postgres = ["psycopg2-binary"]
+mongo = ["pymongo"]
+s3 = ["boto3"]
+
+[tool.poetry.group.dev.dependencies]
+# Test-only: the storage backends' tests need the drivers installed.
+psycopg2-binary = "^2.9.0"
+pymongo = {extras = ["srv"], version = "^4.13.2"}
+boto3 = "^1.35.0"
+ruff = "^0.16.9"
+pyright = "^1.1.391"
+
+[tool.pyright]
+include = ["src", "tests"]
+useLibraryCodeForTypes = true
+venvPath = "."
+venv = ".venv"
+stubPath = ""
+exclude = ["**/__pycache__", ".venv"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+
+[tool.ruff.lint.isort]
+# The campus namespace spans multiple distributions; without this,
+# src-based first-party detection classifies campus.* third-party and
+# import blocks split after every carve (nyjc-computing/campus#987).
+known-first-party = ["campus"]
+
+[tool.ruff.lint]
+select = ['E', 'W', 'F', 'I', 'B', 'C4', 'SIM']
+# Policy (mirrors the campus monorepo): ruff enforces style; humans rewrite
+# code. Autofixes are disabled repo-wide (see campus docs/STYLE-GUIDE.md).
+fixable = []
+ignore = [
+    'W291', 'W292', 'W293',  # trailing whitespace: formatting, not lint
+]
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"

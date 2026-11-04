@@ -1,0 +1,33 @@
+{
+  "campus.storage": [
+    "BucketInterface",
+    "CollectionInterface",
+    "ConflictError",
+    "NoChangesAppliedError",
+    "NotFoundError",
+    "ObjectMetadata",
+    "StorageError",
+    "TableInterface",
+    "between",
+    "get_bucket",
+    "get_collection",
+    "get_table",
+    "gt",
+    "gte",
+    "is_operator",
+    "lt",
+    "lte",
+    "ne",
+    "purge_all",
+    "purge_buckets",
+    "purge_collections",
+    "purge_tables"
+  ],
+  "campus.webauth": [
+    "http",
+    "oauth2"
+  ],
+  "campus.services": [
+    "email"
+  ]
+}
