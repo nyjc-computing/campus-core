@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.2 — 2026-11-07
+
+Dependency rebuild: campus-model pin v0.1.4 -> v0.1.5 (`TimetableEntry`
+label persistence, campus-model#5 / campus#1080). No code changes -
+direct-URL deps bake the pinned wheel URL into this distribution's
+metadata, so the bump requires a rebuild here per the pin-rebuild
+contract.
+
 ## 0.1.1 — 2026-11-05
 
 Dependency rebuild: campus-model pin v0.1.3 -> v0.1.4 (new
