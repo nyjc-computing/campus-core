@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.5 — 2026-11-16
+
+Dependency rebuild: campus-model pin v0.1.7 -> v0.2.0 (documents-backed
+`Venue` reshape, campus-model#9 / campus#1099). No code changes —
+campus-core imports only `campus.model.base`, which is unchanged; the
+pin moves per the URL-pin collision rule so shared lockfiles with the
+suite stay resolvable.
+
 ## 0.1.2 — 2026-11-07
 
 Dependency rebuild: campus-model pin v0.1.4 -> v0.1.5 (`TimetableEntry`
