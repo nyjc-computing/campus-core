@@ -6,7 +6,55 @@ These errors are used by storage backends (documents and tables) to handle
 common error conditions like documents not found or no changes applied.
 """
 
+import logging
+import re
 from typing import Optional
+
+logger = logging.getLogger(__name__)
+
+# A credential-bearing URI fragment in driver text — pymongo's
+# InvalidURI echoes the malformed connection string verbatim. Masked
+# before the text reaches even the server log (policy §3: logs carry
+# no secrets).
+_CREDENTIAL_IN_URI = re.compile(r"(://[^:/@\s]+:)[^@\s]+(@)")
+
+
+def sanitize_driver_error(
+        err: Exception,
+        *,
+        operation: str,
+        group_name: Optional[str] = None,
+        error_cls: Optional["type[StorageError]"] = None,
+) -> "StorageError":
+    """Map a raw storage-driver exception to a sanitized StorageError.
+
+    Driver exception texts embed internals: pymongo's ``InvalidURI``
+    echoes the credential-bearing connection URI, psycopg2
+    ``IntegrityError`` carries the failing SQL statement, boto
+    ``ClientError`` carries endpoints and request ids. StorageError
+    folds ``details`` into its message, so raw driver text would reach
+    server logs and — through the generic error handler —
+    student-visible responses (campus-core#8; environment-access-policy
+    §3/§4).
+
+    The returned error carries the driver class name, the operation,
+    and the collection/table only. The full driver text goes to the
+    server log (superadmin-only surface), with credential-bearing URI
+    fragments masked.
+    """
+    logger.error(
+        "Storage driver %s during %s on %s: %s",
+        type(err).__name__,
+        operation,
+        group_name or "<unnamed>",
+        _CREDENTIAL_IN_URI.sub(r"\1***\2", str(err)),
+    )
+    if error_cls is None:
+        error_cls = StorageError
+    return error_cls(
+        f"{type(err).__name__} during {operation}",
+        group_name=group_name,
+    )
 
 
 class StorageError(Exception):

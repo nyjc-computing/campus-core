@@ -207,10 +207,16 @@ class RailwayBucket(BucketInterface):
                 details={"key": key}
             )
         else:
+            # Driver text stays out of the error: ClientError strings
+            # carry S3 endpoints and request ids (campus-core#8)
+            logger.error(
+                "Storage driver %s during %s on %s (key %s): %s",
+                type(error).__name__, context, self.name, key, error,
+            )
             return errors.StorageError(
-                message=f"{context} failed: {error_code}",
+                message=f"{context} failed ({error_code or type(error).__name__})",
                 group_name=self.name,
-                details={"key": key, "error": str(error)}
+                details={"key": key},
             )
 
     def put(
@@ -337,11 +343,16 @@ class RailwayBucket(BucketInterface):
             error_code = getattr(e, "response", {}).get("Error", {}).get("Code", "")
             if error_code in ("NoSuchBucket", "404"):
                 return []
+            logger.error(
+                "Storage driver %s during list on %s (prefix %s): %s",
+                type(e).__name__, self.name, prefix, e,
+            )
             raise errors.StorageError(
-                message=f"List operation failed: {error_code}",
+                message=f"List operation failed "
+                        f"({error_code or type(e).__name__})",
                 group_name=self.name,
-                details={"prefix": prefix, "error": str(e)}
-            ) from e
+                details={"prefix": prefix},
+            ) from None
 
     def get_url(self, key: str, expires_in: int = 3600) -> str:
         """Generate a presigned URL for temporary access."""
