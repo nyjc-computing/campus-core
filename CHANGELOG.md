@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.8 — 2026-11-17
+
+Pin-only rebuild: campus-model v0.2.2 → v0.2.3
+(APIKey trace-read scoping binds, campus#944 / campus-model#13).
+No code changes.
+
 ## 0.1.7 — 2026-11-17
 
 Pin-only rebuild: campus-common v0.4.0 → v0.5.0
