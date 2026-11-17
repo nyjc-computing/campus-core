@@ -139,13 +139,13 @@ url = "https://github.com/nyjc-computing/campus-common/releases/download/v0.5.0/
 
 [[package]]
 name = "campus-model"
-version = "0.2.2"
+version = "0.2.3"
 description = "Campus domain models: dataclass entities under campus/model - PEP 420 namespace portion"
 optional = false
 python-versions = ">=3.11.0,<3.15"
 groups = ["main"]
 files = [
-    {file = "campus_model-0.2.2-py3-none-any.whl", hash = "sha256:8536319c6ab22301b281691d6e96c665a2e1d29359f783162c44362104dd860f"},
+    {file = "campus_model-0.2.3-py3-none-any.whl", hash = "sha256:6c00c60b6d439a5c48b4e9ae41432f35e496208b8ac6805f1c31984e95f1b3ee"},
 ]
 
 [package.dependencies]
@@ -153,7 +153,7 @@ campus_common = {url = "https://github.com/nyjc-computing/campus-common/releases
 
 [package.source]
 type = "url"
-url = "https://github.com/nyjc-computing/campus-model/releases/download/v0.2.2/campus_model-0.2.2-py3-none-any.whl"
+url = "https://github.com/nyjc-computing/campus-model/releases/download/v0.2.3/campus_model-0.2.3-py3-none-any.whl"
 
 [[package]]
 name = "certifi"
@@ -745,4 +745,4 @@ s3 = ["boto3"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.11.0,<3.15"
-content-hash = "19fbb60bebd92e5dc1609339779237d846bc314de89cb2dd3c6322b09f017b58"
+content-hash = "507968e6ac3128c6d4f946340f805f9112a1207226ab985608e8755ca1aa5af7"
