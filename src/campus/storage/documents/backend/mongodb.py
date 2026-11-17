@@ -31,6 +31,7 @@ collection.delete_by_id("123")
 ```
 """
 
+import logging
 from typing import Any
 
 from pymongo import MongoClient
@@ -41,10 +42,18 @@ from pymongo.errors import BulkWriteError, DuplicateKeyError
 from campus.common import env
 from campus.model.base import Model
 from campus.storage.documents.interface import PK, CollectionInterface
-from campus.storage.errors import ConflictError, NoChangesAppliedError, NotFoundError, StorageError
+from campus.storage.errors import (
+    ConflictError,
+    NoChangesAppliedError,
+    NotFoundError,
+    StorageError,
+    sanitize_driver_error,
+)
 from campus.storage.query import gt, gte, is_operator, lt, lte, ne
 
 JsonObject = dict[str, Any]
+
+logger = logging.getLogger(__name__)
 
 MONGO_PK = "_id"  # MongoDB uses _id as the primary key
 
@@ -65,8 +74,11 @@ def _get_mongodb_name() -> str:
     try:
         return env.getsecret("MONGODB_NAME")
     except Exception as e:
+        # Vault failure text can carry endpoint detail; name-only message,
+        # driver detail to the server log (campus-core#8).
+        logger.error("Failed to retrieve MONGODB_NAME from vault: %s", e)
         raise MongoCollectionError(
-            f"Failed to retrieve MONGODB_NAME: {e}"
+            "Failed to retrieve the MongoDB database name"
         ) from None
 
 
@@ -144,7 +156,16 @@ class MongoDBCollection(CollectionInterface):
         if self._collection is None:
             mongodb_uri = _get_mongodb_uri()
             mongodb_name = _get_mongodb_name()
-            self._client = MongoClient(mongodb_uri)
+            try:
+                self._client = MongoClient(mongodb_uri)
+            except Exception as e:
+                # pymongo InvalidURI echoes the credential-bearing URI;
+                # sanitized (campus-core#8)
+                raise sanitize_driver_error(
+                    e,
+                    error_cls=MongoCollectionError,
+                    operation="connect to MongoDB",
+                ) from None
             self._db = self._client[mongodb_name]
             self._collection = self._db[self.name]
 
@@ -197,8 +218,11 @@ class MongoDBCollection(CollectionInterface):
         try:
             mongo_doc = self.collection.find_one({MONGO_PK: doc_id})
         except Exception as e:
-            raise MongoCollectionError(
-                f"Failed to retrieve document by id: {e}"
+            raise sanitize_driver_error(
+                e,
+                error_cls=MongoCollectionError,
+                operation="retrieve document by id",
+                group_name=self.name,
             ) from None
         if mongo_doc:
             return MongoRecord.from_mongo(mongo_doc).to_record()
@@ -236,8 +260,11 @@ class MongoDBCollection(CollectionInterface):
                 cursor = cursor.limit(limit)
 
         except Exception as e:
-            raise MongoCollectionError(
-                f"Failed to retrieve documents matching query: {e}"
+            raise sanitize_driver_error(
+                e,
+                error_cls=MongoCollectionError,
+                operation="retrieve documents matching query",
+                group_name=self.name,
             ) from None
         return [
             MongoRecord.from_mongo(mongo_doc).to_record()
@@ -253,10 +280,12 @@ class MongoDBCollection(CollectionInterface):
             # Duplicate key error (conflict)
             # pymongo.errors.DuplicateKeyError is the canonical error, but fallback to message check
             if isinstance(e, DuplicateKeyError) or 'duplicate key' in str(e).lower():
+                # No row echo and no driver text: the record may carry
+                # secrets, and driver text embeds internals (campus-core#8)
                 raise ConflictError(
                     message="Conflict occurred during insert",
                     group_name=self.name,
-                    details={"row": record, "error": str(e)}
+                    details={"id": record.get(PK)},
                 ) from None
             raise
 
@@ -315,8 +344,11 @@ class MongoDBCollection(CollectionInterface):
                 }
             )
         except Exception as e:
-            raise MongoCollectionError(
-                f"Failed to update document by id: {e}"
+            raise sanitize_driver_error(
+                e,
+                error_cls=MongoCollectionError,
+                operation="update document by id",
+                group_name=self.name,
             ) from None
         if result.matched_count == 0:
             raise NotFoundError(doc_id, self.name) from None
@@ -340,8 +372,11 @@ class MongoDBCollection(CollectionInterface):
                 }
             )
         except Exception as e:
-            raise MongoCollectionError(
-                f"Failed to update documents matching query: {e}"
+            raise sanitize_driver_error(
+                e,
+                error_cls=MongoCollectionError,
+                operation="update documents matching query",
+                group_name=self.name,
             ) from None
         if result.matched_count == 0:
             raise NoChangesAppliedError("update", query, self.name)
@@ -351,8 +386,11 @@ class MongoDBCollection(CollectionInterface):
         try:
             result = self.collection.delete_one({MONGO_PK: doc_id})
         except Exception as e:
-            raise MongoCollectionError(
-                f"Failed to delete document by id: {e}"
+            raise sanitize_driver_error(
+                e,
+                error_cls=MongoCollectionError,
+                operation="delete document by id",
+                group_name=self.name,
             ) from None
         if result.deleted_count == 0:
             raise NotFoundError(doc_id, self.name)
@@ -364,8 +402,11 @@ class MongoDBCollection(CollectionInterface):
             mongo_query = self._build_mongo_query(query)
             result = self.collection.delete_many(mongo_query)
         except Exception as e:
-            raise MongoCollectionError(
-                f"Failed to delete documents matching query: {e}"
+            raise sanitize_driver_error(
+                e,
+                error_cls=MongoCollectionError,
+                operation="delete documents matching query",
+                group_name=self.name,
             ) from None
         if result.deleted_count == 0:
             raise NoChangesAppliedError("delete", query, self.name)

@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.1.6 — 2026-11-17
+
+**Policy**: sanitize storage-driver error surfaces (campus-core#8;
+environment-access-policy 2026-11-17 §3/§4) + pin rebuild.
+
+- Storage backends no longer fold raw driver exception text into
+  `StorageError` messages/details. Driver texts embed internals:
+  pymongo's `InvalidURI` echoes the credential-bearing connection URI,
+  psycopg2's `IntegrityError` carries the failing SQL statement, boto
+  `ClientError` carries S3 endpoints and request ids — and
+  `StorageError` folds `details` into its message, so raw driver text
+  could reach server logs and (through the generic error handler)
+  student-visible responses. All backend failure sites now raise
+  sanitized errors (driver class + operation + collection/table only)
+  via the new `campus.storage.errors.sanitize_driver_error`; the full
+  driver text is logged server-side once, with credential-bearing URI
+  fragments masked, and the cause chain is suppressed (`from None`) so
+  downstream tracebacks can't re-leak it.
+- Duplicate-key conflicts (`ConflictError` on documents/tables
+  inserts/updates) no longer echo the full record/update dict in
+  `details` — rows can carry secrets — only the document/row id.
+- Pins: campus-common v0.3.1 → v0.4.0 (error-surface scrubs,
+  campus-common#8), campus-model v0.2.0 → v0.2.1 (pin-only rebuild of
+  the same bump).
+
 ## 0.1.5 — 2026-11-16
 
 Dependency rebuild: campus-model pin v0.1.7 -> v0.2.0 (documents-backed

@@ -369,16 +369,23 @@ class PostgreSQLTable(TableInterface):
                     f"INSERT INTO {self.name} ({column_names}) VALUES ({placeholders})",
                     values
                 )
-            except psycopg2.IntegrityError as e:
+            except psycopg2.IntegrityError:
+                # No row echo and no driver text: the row may carry
+                # secrets, and IntegrityError text includes the failing
+                # SQL statement (campus-core#8)
                 conn.rollback()
                 raise errors.ConflictError(
                     message="Conflict occurred during insert",
                     group_name=self.name,
-                    details={"row": row, "error": str(e)}
-                ) from e
-            except psycopg2.Error:
+                    details={"id": row.get(PK)},
+                ) from None
+            except psycopg2.Error as e:
                 conn.rollback()
-                raise
+                raise errors.sanitize_driver_error(
+                    e,
+                    operation="insert row",
+                    group_name=self.name,
+                ) from None
             else:
                 conn.commit()
 
@@ -433,9 +440,13 @@ class PostgreSQLTable(TableInterface):
                     f"INSERT INTO {self.name} ({column_names}) VALUES %s",
                     values
                 )
-            except psycopg2.Error:
+            except psycopg2.Error as e:
                 conn.rollback()
-                raise
+                raise errors.sanitize_driver_error(
+                    e,
+                    operation="bulk-insert rows",
+                    group_name=self.name,
+                ) from None
             else:
                 conn.commit()
 
@@ -458,18 +469,23 @@ class PostgreSQLTable(TableInterface):
                     f"UPDATE {self.name} SET {set_clause} WHERE {PK} = %s",
                     params
                 )
-            except psycopg2.IntegrityError as e:
+            except psycopg2.IntegrityError:
                 # Match the insert_one error contract so callers see the
                 # same exception type on unique constraint violations
-                # regardless of backend.
+                # regardless of backend. No update echo and no driver
+                # text (campus-core#8)
                 conn.rollback()
                 raise errors.ConflictError(
                     message="Conflict occurred during update",
                     group_name=self.name,
-                    details={"row_id": row_id, "update": update, "error": str(e)}
-                ) from e
-            except psycopg2.Error:
-                raise
+                    details={"id": row_id},
+                ) from None
+            except psycopg2.Error as e:
+                raise errors.sanitize_driver_error(
+                    e,
+                    operation="update row by id",
+                    group_name=self.name,
+                ) from None
             else:
                 if cursor.rowcount == 0:
                     raise errors.NotFoundError(
@@ -491,8 +507,12 @@ class PostgreSQLTable(TableInterface):
 
             try:
                 cursor.execute(sql, params)
-            except psycopg2.Error:
-                raise
+            except psycopg2.Error as e:
+                raise errors.sanitize_driver_error(
+                    e,
+                    operation="update rows matching query",
+                    group_name=self.name,
+                ) from None
             else:
                 if cursor.rowcount == 0:
                     raise errors.NoChangesAppliedError(
@@ -507,8 +527,12 @@ class PostgreSQLTable(TableInterface):
                     f"DELETE FROM {self.name} WHERE {PK} = %s",
                     (row_id,)
                 )
-            except psycopg2.Error:
-                raise
+            except psycopg2.Error as e:
+                raise errors.sanitize_driver_error(
+                    e,
+                    operation="delete row by id",
+                    group_name=self.name,
+                ) from None
             else:
                 if cursor.rowcount == 0:
                     raise errors.NotFoundError(row_id, self.name)
@@ -523,8 +547,12 @@ class PostgreSQLTable(TableInterface):
                     f"DELETE FROM {self.name} {where_clause}",
                     params
                 )
-            except psycopg2.Error:
-                raise
+            except psycopg2.Error as e:
+                raise errors.sanitize_driver_error(
+                    e,
+                    operation="delete rows matching query",
+                    group_name=self.name,
+                ) from None
             else:
                 if cursor.rowcount == 0:
                     raise errors.NoChangesAppliedError(
