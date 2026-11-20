@@ -36,7 +36,7 @@ from campus.common import env
 from campus.common.utils import datacls
 from campus.model import InternalModel, Model, constraints
 from campus.storage import errors
-from campus.storage.query import gt, gte, is_operator, lt, lte, ne
+from campus.storage.query import between, gt, gte, is_operator, lt, lte, ne
 
 from ..interface import PK, TableInterface
 
@@ -228,7 +228,7 @@ class PostgreSQLTable(TableInterface):
     def _build_where_clause(query: dict) -> tuple[str, list]:
         """Build WHERE clause from query dictionary.
 
-        Handles exact matches and comparison operators (gt, gte, lt, lte, ne).
+        Handles exact matches and comparison operators (gt, gte, lt, lte, ne, between).
         """
         if not query:
             return "", []
@@ -258,6 +258,11 @@ class PostgreSQLTable(TableInterface):
                     else:
                         conditions.append(f'"{key}" != %s')
                         params.append(value.value)
+                elif isinstance(value, between):
+                    # BETWEEN operator: key >= min AND key <= max
+                    min_val, max_val = value.value
+                    conditions.append(f'("{key}" >= %s AND "{key}" <= %s)')
+                    params.extend([min_val, max_val])
                 else:
                     # Unknown operator, fall back to exact match
                     conditions.append(f'"{key}" = %s')
@@ -334,8 +339,8 @@ class PostgreSQLTable(TableInterface):
     ) -> list[dict]:
         """Retrieve rows matching a query.
 
-        Supports exact matches, comparison operators (gt, gte, lt, lte),
-        sorting, and pagination.
+        Supports exact matches, comparison operators (gt, gte, lt, lte, ne,
+        between), sorting, and pagination.
         """
         with self._get_connection() as conn, conn.cursor(cursor_factory=RealDictCursor) as cursor:
             where_clause, params = self._build_where_clause(query)
