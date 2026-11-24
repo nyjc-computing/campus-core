@@ -26,6 +26,7 @@ table.delete_by_id("123")
 
 import dataclasses
 import json
+from collections.abc import Mapping, Sequence
 from contextlib import suppress
 from typing import Any
 
@@ -36,9 +37,10 @@ from campus.common import env
 from campus.common.utils import datacls
 from campus.model import InternalModel, Model, constraints
 from campus.storage import errors
-from campus.storage.query import between, gt, gte, is_operator, lt, lte, ne
+from campus.storage.query import Agg, TimeBucket, between, gt, gte, is_operator, lt, lte, ne
 
 from ..interface import PK, TableInterface
+from . import _aggregate
 
 # Valid field constraint names
 _VALID_CONSTRAINTS = (constraints.UNIQUE,)
@@ -49,6 +51,14 @@ _TYPEMAP = {
     float: "REAL",
     bool: "BOOLEAN",
 }
+
+# aggregate(): the bucket and percentile SQL. Each {} takes a column,
+# double-quoted; each %s binds a value (the bucket width, the fraction).
+_BUCKET_SQL = (
+    "to_char(date_trunc(%s, \"{}\"::timestamptz AT TIME ZONE 'UTC'), "
+    "'YYYY-MM-DD\"T\"HH24:MI:SS')"
+)
+_PERCENTILE_SQL = "percentile_cont(%s) WITHIN GROUP (ORDER BY \"{}\")"
 
 
 def _validate_field_metadata(field: dataclasses.Field) -> None:
@@ -362,6 +372,72 @@ class PostgreSQLTable(TableInterface):
             cursor.execute(sql, params)
             rows = cursor.fetchall()
             return [self._deserialize_row(dict(row)) for row in rows]
+
+    def aggregate(
+        self,
+        query: dict | None = None,
+        *,
+        group_by: Sequence[str] = (),
+        functions: Mapping[str, Agg],
+        bucket: TimeBucket | None = None,
+        order_by: Sequence[str] = (),
+        limit: int | None = None,
+        offset: int = 0
+    ) -> list[dict[str, Any]]:
+        """Aggregate the rows matching a query.
+
+        Implements TableInterface.aggregate. The database does the work:
+        percentile is percentile_cont and each bucket is date_trunc.
+
+        The statement runs with the session time zone pinned to UTC for its
+        transaction, so a bucket is always a UTC boundary whatever the
+        server or connection default: timestamps with an offset and
+        TIMESTAMPTZ columns are exact instants anyway, while text without
+        an offset and TIMESTAMP columns are read as UTC, as the sqlite
+        backend reads its text.
+        """
+        plan = _aggregate.validate(
+            self.name, query, group_by, functions, bucket, order_by, limit, offset)
+
+        params: list[Any] = []
+        expressions: list[str] = [f'"{column}"' for column in plan.group_by]
+        if plan.bucket is not None:
+            expressions.append(_BUCKET_SQL.format(plan.bucket.column))
+            params.append(plan.bucket.width)
+        for _alias, agg in plan.functions:
+            expressions.append(_aggregate.function_expression(agg, _PERCENTILE_SQL, params))
+        select_list, tail = _aggregate.render(plan, expressions)
+        where_clause, where_params = self._build_where_clause(query or {})
+        params.extend(where_params)
+        sql = f'SELECT {select_list} FROM "{self.name}" {where_clause}{tail}'
+
+        if plan.limit is not None:
+            sql += " LIMIT %s"
+            params.append(plan.limit)
+        if plan.offset > 0:
+            sql += " OFFSET %s"
+            params.append(plan.offset)
+
+        with self._get_connection() as conn, conn.cursor(cursor_factory=RealDictCursor) as cursor:
+            try:
+                cursor.execute("SET LOCAL TIME ZONE 'UTC'")
+                cursor.execute(sql, params)
+                rows = cursor.fetchall()
+            except psycopg2.Error as e:
+                raise errors.sanitize_driver_error(
+                    e,
+                    operation="aggregate rows matching query",
+                    group_name=self.name,
+                ) from None
+
+        results = []
+        for row in rows:
+            result = self._deserialize_row(dict(row))
+            if plan.bucket is not None:
+                value = result[plan.bucket.alias]
+                result[plan.bucket.alias] = None if value is None else f"{value}+00:00"
+            results.append(_aggregate.normalise(plan, result))
+        return results
 
     def insert_one(self, row: dict) -> None:
         """Insert a row into the specified table."""

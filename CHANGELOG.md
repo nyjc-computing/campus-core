@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.1.12 — 2026-11-25
+
+**Additive**: `TableInterface.aggregate()` — count / group-by /
+percentile / time-bucket queries for campus.audit (campus#1243). Both
+table backends implement it with the same semantics.
+
+- `campus.storage` exports two new public types: `Agg` (a `func` of
+  `count`, `count_distinct`, `sum`, `avg`, `min`, `max` or `percentile`,
+  a `column`, and a `fraction` for `percentile`) and `TimeBucket` (a
+  timestamp `column`, a `width` of `minute`/`hour`/`day`/`week`/`month`,
+  and an `alias`).
+- `aggregate(query, *, group_by, functions, bucket, order_by, limit,
+  offset)` filters with the language of `get_matching` and returns a
+  list of dicts: one row of totals without grouping (even when nothing
+  matches), one row per group otherwise. Counts are ints; every other
+  function is a float, or None where the column has no value. Buckets
+  are ISO 8601 UTC strings at second precision, starting on UTC
+  boundaries (weeks on Monday).
+- `percentile` is continuous, with linear interpolation between
+  neighbouring values: PostgreSQL's `percentile_cont`, which the sqlite
+  backend computes in Python through its `campus_percentile` aggregate.
+- An invalid argument raises `ValueError` before the database is
+  touched. Identifiers only ever reach SQL validated and double-quoted,
+  and every value is a bound parameter.
+- PostgreSQL reads timestamps as UTC whatever the session time zone, so
+  text without an offset and native `TIMESTAMP` columns bucket like
+  `TIMESTAMPTZ`. Ordering states where NULL sorts, because the two
+  engines' defaults differ (it sorts last ascending). The sqlite
+  backend's `aggregate()` needs SQLite 3.30 or later for that syntax.
+- `aggregate()` is concrete on `TableInterface` and raises
+  `NotImplementedError` there: a subclass defined outside this dist that
+  predates it still instantiates, so the release stays additive.
+
 ## 0.1.8 — 2026-11-17
 
 Pin-only rebuild: campus-model v0.2.2 → v0.2.3
