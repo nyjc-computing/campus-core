@@ -9,6 +9,7 @@ Three kinds of storage interface are provided:
 """
 
 __all__ = [
+    "Agg",
     "BucketInterface",
     "CollectionInterface",
     "ConflictError",
@@ -17,6 +18,7 @@ __all__ = [
     "ObjectMetadata",
     "TableInterface",
     "StorageError",
+    "TimeBucket",
     "get_bucket",
     "get_collection",
     "get_table",
@@ -24,7 +26,7 @@ __all__ = [
     "purge_buckets",
     "purge_collections",
     "purge_tables",
-    # Query operators
+    # Query operators and aggregation types
     "gt",
     "gte",
     "lt",
@@ -40,7 +42,7 @@ from . import documents, objects, tables
 from .documents import CollectionInterface
 from .errors import ConflictError, NoChangesAppliedError, NotFoundError, StorageError
 from .objects import BucketInterface, ObjectMetadata
-from .query import between, gt, gte, is_operator, lt, lte, ne
+from .query import Agg, TimeBucket, between, gt, gte, is_operator, lt, lte, ne
 from .tables import TableInterface
 
 

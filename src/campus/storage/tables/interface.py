@@ -8,9 +8,11 @@ Each row in the table is assumed to have:
 """
 
 from abc import ABC, abstractmethod
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 from campus.model import InternalModel, Model
+from campus.storage.query import Agg, TimeBucket
 
 # This constant should match the one in campus.common.schema
 PK = "id"
@@ -75,6 +77,80 @@ class TableInterface(ABC):
 
             # With sorting and pagination
             get_matching({"status": "active"}, order_by="created_at", ascending=False, limit=10, offset=0)
+        """
+        ...
+
+    @abstractmethod
+    def aggregate(
+        self,
+        query: dict | None = None,
+        *,
+        group_by: Sequence[str] = (),
+        functions: Mapping[str, Agg],
+        bucket: TimeBucket | None = None,
+        order_by: Sequence[str] = (),
+        limit: int | None = None,
+        offset: int = 0
+    ) -> list[dict[str, Any]]:
+        """Aggregate the rows matching a query.
+
+        Every backend implements the same semantics:
+
+        - Without group_by and bucket, exactly one row of totals is
+          returned, even when nothing matches (count is 0, the rest None).
+        - With grouping and no matching rows, an empty list is returned.
+        - count/count_distinct are ints. sum/avg/min/max/percentile are
+          floats, or None when the column has no non-null values in the
+          group.
+        - percentile is continuous, with linear interpolation between
+          neighbouring values (PostgreSQL's percentile_cont); NULLs are
+          ignored.
+        - Rows are ordered only by order_by, or by bucket when there is
+          one and no order_by. A NULL sorts after every other value: last
+          ascending, first descending.
+
+        Args:
+            query: The filter language of get_matching: exact matches,
+                   None (IS NULL) and the operators gt, gte, lt, lte, ne,
+                   between, combined as an implicit AND.
+            group_by: Column names to group by. Each appears in every
+                   result row under its own name. The group_by columns,
+                   the bucket alias and the function aliases must be
+                   distinct names.
+            functions: Aggregation alias to Agg. Each alias is a key in
+                   the result rows. At least one function is required.
+                   sum, avg, min, max and percentile need a column that
+                   holds numbers.
+            bucket: Optional time bucketing of bucket.column, reported
+                   under bucket.alias as an ISO 8601 UTC string with
+                   second precision, such as "2026-11-24T10:17:00+00:00".
+                   bucket.column holds ISO 8601 text in UTC (on
+                   PostgreSQL, it may also be a TIMESTAMPTZ or TIMESTAMP
+                   column).
+            order_by: Output names to sort by: a group_by column, a
+                   function alias or the bucket alias. A leading "-" sorts
+                   descending.
+            limit: Maximum number of rows to return. If None, all rows are returned.
+            offset: Number of rows to skip before returning results.
+
+        Returns:
+            List of result rows as dictionaries.
+
+        Raises:
+            ValueError: If any argument is invalid. Raised before the
+                database is touched.
+
+        Example:
+            # Requests per minute with latency percentiles
+            aggregate(
+                {"status_code": lt(500)},
+                bucket=TimeBucket("started_at", "minute"),
+                functions={
+                    "requests": Agg("count"),
+                    "p50_ms": Agg("percentile", "duration_ms", 0.5),
+                    "p99_ms": Agg("percentile", "duration_ms", 0.99),
+                },
+            )
         """
         ...
 

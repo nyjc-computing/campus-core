@@ -28,6 +28,7 @@ import json
 import os
 import sqlite3
 import threading
+from collections.abc import Mapping, Sequence
 from contextlib import suppress
 from typing import Any, Optional
 
@@ -35,9 +36,10 @@ from campus.common import env
 from campus.common.utils import datacls
 from campus.model import InternalModel, Model, constraints
 from campus.storage import errors as storage_errors
-from campus.storage.query import gt, gte, is_operator, lt, lte, ne
+from campus.storage.query import Agg, TimeBucket, gt, gte, is_operator, lt, lte, ne
 
 from ..interface import PK, TableInterface
+from . import _aggregate
 
 # Global connection cache and lock for thread-safe SQLite access
 # This ensures all SQLiteTable instances share a single connection per database,
@@ -63,6 +65,11 @@ _TYPEMAP = {
     float: "REAL",
     bool: "INTEGER",
 }
+
+# aggregate(): how many characters of an ISO 8601 timestamp (2026-11-24T10:17:00+00:00)
+# make up a bucket of each width. A week has no fixed prefix: it is the Monday
+# on or before the date, so it takes the date() expression below.
+_BUCKET_PREFIX = {"minute": 16, "hour": 13, "day": 10, "month": 7}
 
 
 def _validate_field_metadata(field: dataclasses.Field) -> None:
@@ -478,6 +485,100 @@ class SQLiteTable(TableInterface):
             finally:
                 cursor.close()
         return rows
+
+    @staticmethod
+    def _bucket_expression(bucket: TimeBucket) -> str:
+        """Build the SQL that reduces a timestamp column to its raw bucket.
+
+        The raw bucket is a prefix of the timestamp text (or, for a week,
+        the Monday on or before its date); _complete_bucket finishes it.
+        """
+        column = f'"{bucket.column}"'
+        if bucket.width == "week":
+            return f"date(substr({column}, 1, 10), '-6 days', 'weekday 1')"
+        return f"substr({column}, 1, {_BUCKET_PREFIX[bucket.width]})"
+
+    @staticmethod
+    def _complete_bucket(width: str, value: Any) -> Any:
+        """Complete a raw bucket to its ISO 8601 UTC form (None stays None)."""
+        if value is None:
+            return None
+        if width == "minute":
+            return f"{value}:00+00:00"
+        if width == "hour":
+            return f"{value}:00:00+00:00"
+        if width == "month":
+            return f"{value}-01T00:00:00+00:00"
+        return f"{value}T00:00:00+00:00"
+
+    def aggregate(
+        self,
+        query: dict | None = None,
+        *,
+        group_by: Sequence[str] = (),
+        functions: Mapping[str, Agg],
+        bucket: TimeBucket | None = None,
+        order_by: Sequence[str] = (),
+        limit: int | None = None,
+        offset: int = 0
+    ) -> list[dict[str, Any]]:
+        """Aggregate the rows matching a query.
+
+        Implements TableInterface.aggregate. Timestamps are ISO 8601 text,
+        so a bucket is cut out of the text by SQL and completed here;
+        percentile is computed in Python by the campus_percentile
+        aggregate, which keeps each group's values in memory.
+        """
+        plan = _aggregate.validate(
+            self.name, query, group_by, functions, bucket, order_by, limit, offset)
+
+        params: list[Any] = []
+        expressions: list[str] = [f'"{column}"' for column in plan.group_by]
+        if plan.bucket is not None:
+            expressions.append(self._bucket_expression(plan.bucket))
+        for _alias, agg in plan.functions:
+            expressions.append(
+                _aggregate.function_expression(agg, 'campus_percentile(?, "{}")', params))
+        select_list, tail = _aggregate.render(plan, expressions)
+        where_clause, where_params = self._build_where_clause(query or {})
+        params.extend(where_params)
+        sql = f'SELECT {select_list} FROM "{self.name}" {where_clause}{tail}'
+
+        # SQLite requires LIMIT when using OFFSET. If offset is specified
+        # but limit is not, use -1, which means "no limit" (see get_matching)
+        if plan.limit is None and plan.offset > 0:
+            sql += " LIMIT -1"
+        if plan.limit is not None:
+            sql += " LIMIT ?"
+            params.append(plan.limit)
+        if plan.offset > 0:
+            sql += " OFFSET ?"
+            params.append(plan.offset)
+
+        # Serialize the full statement lifecycle against other threads
+        # sharing this connection (see get_matching).
+        conn = self.get_connection()
+        with _connection_locks[self.db_path]:
+            # Registered on every call rather than once per connection:
+            # sqlite3.Connection cannot be weakly referenced, so done
+            # connections cannot be tracked without keeping them alive,
+            # and create_aggregate() replaces the same definition anyway.
+            conn.create_aggregate("campus_percentile", 2, _aggregate.Percentile)
+            cursor = conn.cursor()
+            try:
+                cursor.execute(sql, params)
+                rows = cursor.fetchall()
+            finally:
+                cursor.close()
+
+        results = []
+        for row in rows:
+            result = self._deserialize_row(row)
+            if plan.bucket is not None:
+                result[plan.bucket.alias] = self._complete_bucket(
+                    plan.bucket.width, result[plan.bucket.alias])
+            results.append(_aggregate.normalise(plan, result))
+        return results
 
     def insert_one(self, row: dict[str, Any]):
         """Insert a row into the table using actual table columns."""

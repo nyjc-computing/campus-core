@@ -1,5 +1,6 @@
 {
   "campus.storage": [
+    "Agg",
     "BucketInterface",
     "CollectionInterface",
     "ConflictError",
@@ -8,6 +9,7 @@
     "ObjectMetadata",
     "StorageError",
     "TableInterface",
+    "TimeBucket",
     "between",
     "get_bucket",
     "get_collection",
