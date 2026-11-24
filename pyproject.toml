@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "campus-core"
-version = "0.1.11"
+version = "0.1.12"
 description = "Campus storage + webauth + email services - PEP 420 namespace portion under campus/ ; DB drivers are extras, never installed downstream"
 authors = ["Ng Jun Siang <ngjunsiang@gmail.com>"]
 readme = "README.md"
