@@ -850,14 +850,53 @@ class TestAggregationTypes(unittest.TestCase):
             self.assertIs(getattr(campus.storage, name), getattr(query, name))
 
     def test_aggregate_is_part_of_the_table_interface(self):
-        """TableInterface declares it abstract; both table backends define it."""
+        """TableInterface declares it; both table backends define it."""
         from campus.storage import TableInterface
         from campus.storage.tables.backend.postgres import PostgreSQLTable
         from campus.storage.tables.backend.sqlite import SQLiteTable
-        self.assertTrue(TableInterface.aggregate.__isabstractmethod__)
+        self.assertIn("aggregate", vars(TableInterface))
         for backend in (PostgreSQLTable, SQLiteTable):
             self.assertTrue(issubclass(backend, TableInterface))
             self.assertIn("aggregate", vars(backend))
+
+    def test_a_subclass_written_before_aggregate_still_instantiates(self):
+        """A patch release is additive: the new method is not abstract, so
+        a subclass that predates it (a consumer's test double) still
+        instantiates, and calling the method names what is missing."""
+        from campus.storage import TableInterface
+
+        class PredatesAggregate(TableInterface):
+            def get_by_id(self, row_id):
+                pass
+
+            def get_matching(self, query, **kwargs):
+                pass
+
+            def insert_one(self, row):
+                pass
+
+            def update_by_id(self, row_id, update):
+                pass
+
+            def update_matching(self, query, update):
+                pass
+
+            def delete_by_id(self, row_id):
+                pass
+
+            def delete_matching(self, query):
+                pass
+
+            def init_from_model(self, name, model):
+                pass
+
+            def init_from_schema(self, schema):
+                pass
+
+        table = PredatesAggregate("t")
+        with self.assertRaises(NotImplementedError) as raised:
+            table.aggregate(functions={"n": COUNT})
+        self.assertIn("PredatesAggregate", str(raised.exception))
 
 
 class TestPercentile(unittest.TestCase):

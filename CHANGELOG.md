@@ -29,8 +29,9 @@ table backends implement it with the same semantics.
   `TIMESTAMPTZ`. Ordering states where NULL sorts, because the two
   engines' defaults differ (it sorts last ascending). The sqlite
   backend's `aggregate()` needs SQLite 3.30 or later for that syntax.
-- `aggregate()` is abstract on `TableInterface`: a subclass defined
-  outside this dist must implement it to stay instantiable.
+- `aggregate()` is concrete on `TableInterface` and raises
+  `NotImplementedError` there: a subclass defined outside this dist that
+  predates it still instantiates, so the release stays additive.
 
 ## 0.1.8 — 2026-11-17
 

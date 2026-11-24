@@ -79,8 +79,7 @@ class TableInterface(ABC):
             get_matching({"status": "active"}, order_by="created_at", ascending=False, limit=10, offset=0)
         """
         ...
-
-    @abstractmethod
+ 
     def aggregate(
         self,
         query: dict | None = None,
@@ -94,7 +93,8 @@ class TableInterface(ABC):
     ) -> list[dict[str, Any]]:
         """Aggregate the rows matching a query.
 
-        Every backend implements the same semantics:
+        Both shipped backends (PostgreSQLTable, SQLiteTable) implement
+        the same semantics:
 
         - Without group_by and bucket, exactly one row of totals is
           returned, even when nothing matches (count is 0, the rest None).
@@ -139,6 +139,10 @@ class TableInterface(ABC):
         Raises:
             ValueError: If any argument is invalid. Raised before the
                 database is touched.
+            NotImplementedError: This base class cannot aggregate. The
+                method is concrete rather than abstract so that a
+                TableInterface subclass written before it existed still
+                instantiates (a patch release is additive).
 
         Example:
             # Requests per minute with latency percentiles
@@ -152,7 +156,9 @@ class TableInterface(ABC):
                 },
             )
         """
-        ...
+        raise NotImplementedError(
+            f"{type(self).__name__} does not implement aggregate()"
+        )
 
     @abstractmethod
     def insert_one(self, row: dict):
